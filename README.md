@@ -1,6 +1,6 @@
 # An Information Manifold Perspective for Analyzing Test Data
 
-Code for analysis in the manuscript entitled "*An Information Manifold Perspective for Analyzing Test Data*" for publication in Applied Psychological Measurement.
+Code for analysis in the manuscript entitled "An Information Manifold Perspective for Analyzing Test Data" for publication in *Applied Psychological Measurement*.
 
 doi: [link to be inserted]
 
