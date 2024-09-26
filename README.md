@@ -1,4 +1,4 @@
-# Information Theory for Tests
+# An Information Manifold Perspective for Analyzing Test Data
 
 Code for analysis in the manuscript entitled "*An Information Manifold Perspective for Analyzing Test Data*".
 
