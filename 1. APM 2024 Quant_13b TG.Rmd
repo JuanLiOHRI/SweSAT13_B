@@ -1,0 +1,232 @@
+---
+title: "Quant13B - APM 2024 paper, TG"
+date: "2024-08-15"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Quantshort}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(TestGardener)
+```
+
+## Read and prepare data
+
+```{r}
+n    <- 80
+data <- read.csv("data/Quant_13B_sample.csv", header = T) 
+N    <- nrow(data) # Number of examinees
+U <- as.matrix(unname(data))
+
+# read the key
+knostring <- scan("data/Quant_13B_key.txt", "o") 
+key       <- as.integer(unlist(stringr::str_split(knostring,"")))
+
+#  Title for the data 
+titlestr  <- "SweSAT-Q_13B"
+```
+
+```{r}
+# Number of options per item
+noption <- rep(4,n)
+noption[c(23:28,63:68)] <- 5
+
+#  Define the option score values for each item
+ScoreList <- vector("list",n) # option scores
+for (item in 1:n){
+  scorei <- rep(0,noption[item])
+  scorei[key[item]] <- 1
+  ScoreList[[item]] <- scorei
+}
+
+# print("Option counts for each item:")
+# for (item in 1:n) {
+#   Mi <- noption[item]
+#   mcount <- rep(0,Mi)
+#   for (m in 1:Mi) {
+#     mcount[m] <- sum(U[,item] == m)
+#   }
+#   print(c(item, mcount))
+# }
+
+#  Set up a list vector containing labels for each item if desired
+itemLab <- NULL  #  no item labels
+
+#  Set up a list vector containing a list vector of option labels
+#  or leave NULL otherwise
+optLab <- NULL  #  no option labels
+
+#  package this information into a named list object
+optList <- list(itemLab, optLab, optScr=ScoreList)
+```
+
+
+```{r}
+#  fdPar object WfdPar used for surprisal smoothing
+Wnbasis <- 7
+Wnorder <- 5
+Wbasis  <- create.bspline.basis(c(0,100), Wnbasis, Wnorder)
+Wfd     <- fd(matrix(0,7,1), Wbasis)
+WfdPar  <- fdPar(Wfd)
+
+#  Number of bins to use
+# N is 5379, so roughly 100 examinees for each bin
+nbin <- 53  
+
+# The range of sum scores
+scrrng = c(0,80)
+
+file_name <- "data/saved results/Quant_13B_dataList.rds"
+if (file.exists(file_name)) {
+  Quant_13B_dataList <- readRDS(file_name)
+} else {
+  set.seed(100)
+  Quant_13B_dataList <- make.dataList(U, key, optList, scrrng, titlestr,
+                                      nbin, WfdPar=WfdPar, jitterwrd=TRUE)
+  saveRDS(Quant_13B_dataList, file=file_name)
+}
+```
+
+## Initialize analysis
+
+Preliminary displays and plots before Analyze show initial mean fitting function and initial surprisal curves
+
+```{r}
+#  initial score index values, here percentile ranks
+theta     <- Quant_13B_dataList$percntrnk
+#  initial bin boundaries
+thetaQnt  <- Quant_13B_dataList$thetaQnt
+# U is updated by make.dataList
+U <- Quant_13B_dataList$U
+```
+
+```{r}
+#  Preliminary displays and plots before Analyze show initial mean fitting
+#  function and initial surprisal curves
+H <- Hfun(theta, Quant_13B_dataList$WfdList, U)
+meanH <- mean(H)
+print(meanH)
+```
+
+```{r}
+file_name <- "data/saved results/WfdResult0.rds"
+if (file.exists(file_name)) {
+  WfdResult0 <- readRDS(file_name)
+} else {
+  WfdResult0 <- Wbinsmth(theta, Quant_13B_dataList)
+  saveRDS(WfdResult0, file=file_name)
+}
+```
+
+## Optimal scoring cycles of smoothing/theta estimation
+
+```{r}
+ncycle <- 20
+
+file_name <- paste0("data/saved results/AnalyzeResult_", ncycle, ".rds")
+if (file.exists(file_name)) {
+  AnalyzeResult <- readRDS(file_name)
+} else {
+  start <- Sys.time()
+  AnalyzeResult <- Analyze(theta, thetaQnt, Quant_13B_dataList, ncycle, 
+                           itdisp=FALSE, verbose=TRUE) 
+  print(paste0("Run time: ", Sys.time() - start))
+  saveRDS(AnalyzeResult, file=file_name)
+}
+```
+
+```{r, fig.height=6, fig.width=3}
+#  list vector containing results for each cycle
+parList    <- AnalyzeResult$parList
+
+#  Plot progress of mean fitting function and arc length over cycles.
+#  This will indicate whether the cycles have effectively converged
+#  and also aid the choice of which cycle to use to display results
+
+#  set up mean H and arc length for plotting over cycles
+HALsave <- matrix(0,ncycle,2)
+for (icycle in 1:ncycle) {
+  HALsave[icycle,1] <- parList[[icycle]]$meanH
+  HALsave[icycle,2] <- parList[[icycle]]$arclength
+}
+
+#  Plot the average H value and arc length over cycles
+par(mfrow=c(2,1))
+
+plot(1:ncycle, HALsave[,1], type="b", lwd=2, 
+     xlab="Cycle Number",ylab="Mean H")
+plot(1:ncycle, HALsave[,2], type="b", lwd=2, 
+     xlab="Cycle Number", ylab="Arc Length")
+```
+
+## Display results for a specific (the last) cycle
+
+```{r}
+icycle <- 20
+Quant_13B_parList  <- parList[[icycle]]
+
+WfdList    <- Quant_13B_parList$WfdList
+Qvec       <- Quant_13B_parList$Qvec
+binctr     <- Quant_13B_parList$binctr
+theta      <- Quant_13B_parList$theta
+Hval       <- Quant_13B_parList$Hval
+DHval      <- Quant_13B_parList$DHval
+D2Hval     <- Quant_13B_parList$D2Hval
+```
+
+```{r}
+# Screen each examinee's H-curve to ensure that
+# their theta is located at the global mininum.
+# Result <- thetasearch(WfdList, U, theta, Hval, DHval, D2Hval)
+# 
+# thetadiff <- Result$theta - theta
+# thetadiff <- thetadiff[thetadiff != 0]
+# hist(thetadiff)
+# 
+# print(paste("Number revised", length(Result$changeindex)))
+# 
+# Quant_13B_parList$theta  <- Result$theta
+# Quant_13B_parList$Hval   <- Result$Hval
+# Quant_13B_parList$DHval  <- Result$DHval
+# Quant_13B_parList$D2Hval <- Result$D2Hval
+```
+
+## Compute the arc length or information measure 
+
+```{r}
+# A variety of useful objects related to the test info manifold
+# are computed and returned in a struct object infoList
+file_name <- "data/saved results/Quant_13B_infoList.rds"
+if (file.exists(file_name)) {
+  Quant_13B_infoList <- readRDS(file_name)
+} else {
+  Quant_13B_infoList <- theta2arclen(theta, Qvec, WfdList, binctr)  
+  saveRDS(Quant_13B_infoList, file=file_name)
+}
+
+#  The length of the test manifold
+arclength     <- Quant_13B_infoList$arclength
+#  indefinite integral of arc length values corresponding to 
+#  equally spaced theta values
+arclengthvec  <- Quant_13B_infoList$arclengthvec
+#  The N arc length values corresponding to the N estimated score indes
+#  theta values
+theta_al      <- Quant_13B_infoList$theta_al
+#  The arc length values for the five marker percentages
+Qvec_al       <- Quant_13B_infoList$Qvec_al
+#  The arc length values for the bin centers
+binctr_al     <- Quant_13B_infoList$binctr_al
+```
+
+```{r}
+```
+

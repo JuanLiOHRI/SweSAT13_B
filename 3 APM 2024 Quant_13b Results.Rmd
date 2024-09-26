@@ -1,0 +1,290 @@
+---
+title: "Quant13B - APM 2024 paper, results"
+date: "2024-08-13"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Quantshort}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+```{r setup}
+library(ggplot2)
+library(ggpubr)
+library(tidyr)
+library(dplyr)
+library(TestGardener)
+
+library(haven)
+library(mirt)
+library(tidyverse)
+library(patchwork)
+library(fda)
+
+source("R/ICC.plot.R")
+```
+
+## Figure 1
+
+```{r}
+P = c(1:100)/100
+df <- data.frame(P = P,
+                 S2P = -log2(P),
+                 S3P = -log(P, 3),
+                 S4P = -log(P, 4),
+                 S5P = -log(P, 5))
+
+df_long <- pivot_longer(df, -P, names_to = "base", values_to = "value")
+
+df_long <- df_long %>% mutate(base = factor(base))
+levels(df_long$base) <- paste0("M = ", c(2,3,4,5))
+
+p1 <- ggplot(df_long, aes(P, value, color = base))+
+  geom_line(size=1)+
+  labs(x = "Probability",
+       y = "Surprisal")+
+  scale_y_continuous(breaks = seq(0,7, by=1))+
+  theme_bw()+
+  theme(legend.position = c(0.75, 0.5),
+        text = element_text(size = 16),
+        legend.title = element_blank())
+
+p2 <- ggplot(df_long, aes(value, P, color = base))+
+  geom_line(size=1)+
+  scale_x_continuous(breaks = seq(0,7, by=1))+
+  labs(x = "Surprisal",
+       y = "Probability")+
+  theme_bw()+
+  theme(legend.position = c(0.75, 0.5),
+        text = element_text(size = 16),
+        legend.title = element_blank())
+
+ggarrange(p1, p2, ncol = 2)
+```
+
+## Empirical Illustration
+
+### Read in data
+
+```{r}
+# TG
+Quant_13B_dataList <- readRDS("data/saved results/Quant_13B_dataList.rds")
+Quant_13B_infoList <- readRDS("data/saved results/Quant_13B_infoList.rds")
+WfdResult0         <- readRDS("data/saved results/WfdResult0.rds")
+AnalyzeResult      <- readRDS("data/saved results/AnalyzeResult_20.rds")
+Quant_13B_parList  <- AnalyzeResult$parList[[20]]
+
+# Nominal
+mirt_mod_13                <- readRDS("data/saved results/mirt_mod_13.rds")
+Quant_13B_dataList_nom <- readRDS("data/saved results/Quant_13B_dataList_nom.rds")
+Quant_13B_infoList_nom <- readRDS("data/saved results/Quant_13B_infoList_nom.rds")
+Quant_13B_parList_nom  <- readRDS("data/saved results/Quant_13B_parList_nom.rds")
+```
+
+```{r}
+noption <- Quant_13B_dataList$noption
+Wdim    <- sum(noption)
+print(paste0("Number of option: ", Wdim))
+U       <- Quant_13B_dataList$U
+n       <- Quant_13B_dataList$n
+key     <- Quant_13B_dataList$key
+
+scrvec <- Quant_13B_dataList$scrvec
+print(paste0("Median sum score: ", median(scrvec)))
+print(paste0("Number of perfect score: ", sum(scrvec == 80)))
+print(paste0("Score at 95% percentile: ", quantile(scrvec, 0.95)))
+```
+
+```{r}
+#  meanH value
+theta0     <- Quant_13B_dataList$percntrnk
+H0 <- Hfun(theta0, Quant_13B_dataList$WfdList, U)
+meanH0 <- mean(H0)
+
+print(paste0("For the percentage rank initial values: ", round(meanH0,1)))
+print(paste0("For the converged result: ", round(Quant_13B_parList$meanH,1)))
+```
+
+```{r}
+# the arc length of the test information manifold
+indfine <- seq(0, 100, len = 101)
+DWfine <- matrix(0, 101, Wdim)
+WfdList0 <- WfdResult0$WfdList
+m2 <- 0
+for (i in 1:n) {
+  WListi = WfdList0[[i]]
+  Mi = WListi$M
+  m1 = m2 + 1
+  m2 = m2 + Mi
+  DWfine[, m1:m2] = WListi$DWmatfine
+}
+arclength = max(pracma::cumtrapz(indfine, sqrt(apply(DWfine^2, 1, sum))))
+print(paste0("the initial value, defined by sum scores percent ranges: ", round(arclength,1)))
+print(paste0("for the 20th cycle: ", round(Quant_13B_parList$arclength,1)))
+
+# If: N = 54033. bdry = c(-4,4): the nominal arc length: 46.1
+print(paste0("the nominal arc length: ", round(Quant_13B_infoList_nom$arclength,1)))
+```
+
+## Figure 5
+
+```{r}
+df <- data.frame(score = Quant_13B_dataList$scrvec)
+Pvec <- c(0.05, 0.25, 0.5, 0.75, 0.95)
+Qvec <- quantile(df$score, Pvec)
+ggplot(df, aes(score)) +
+  geom_histogram(aes(y = ..density..), bins = 77, color = 1, fill = "white")+
+  geom_density(color = "red", size = 1) +
+  geom_vline(xintercept = Qvec, linetype = "dashed")+
+  annotate("text", x = Qvec+2.2, y = 0.037, label = paste0(Pvec*100, "%")) + 
+  labs(x = "Sum Score",
+       y = "Density") +
+  theme_bw()+
+  theme(text = element_text(size = 14))
+```
+
+## Figure 6
+
+```{r}
+theta      <- Quant_13B_parList$theta
+theta_nom  <- unname(Quant_13B_parList_nom$theta_nom)
+Qvec_nom   <- quantile(theta_nom, c(0.05, 0.25, 0.5, 0.75, 0.95))
+  
+df <- data.frame(theta_TG = theta,
+                 theta_nom = theta_nom) %>% 
+  mutate(theta_nom_bin = factor(ntile(theta_nom, n=50)))
+df1 <- df %>% 
+  group_by(theta_nom_bin) %>% 
+  summarise(theta_nom_median = median(theta_nom)) %>% 
+  ungroup()
+df <- df %>% left_join(df1, by = "theta_nom_bin")
+df_Diag <- data.frame(x = seq(min(df$theta_nom),max(df$theta_nom),length.out = 20), y = seq(0,100,length.out = 20))
+ggplot(df, aes(theta_nom_median,theta_TG,group=theta_nom_median))+
+  geom_boxplot(notch=FALSE, outlier.shape=NA) +
+  geom_line(data = df_Diag, aes(x, y, group = 1), linetype = "dashed", color = "black", size = 0.5)+
+  geom_vline(xintercept = Qvec_nom, linetype = "dashed") +
+  annotate("text", x = Qvec_nom+0.2, y = 101, label = paste0(Pvec*100, "%")) + 
+  labs(x = "Score indices using mirt (theta)",
+       y = "Score indices using TestGardener")+
+  theme_bw()+
+  theme(text = element_text(size = 14))
+```
+
+## Figure 7
+
+```{r}
+theta_al      <- Quant_13B_infoList$theta_al
+Qvec_al       <- Quant_13B_infoList$Qvec_al
+theta_nom_al  <- Quant_13B_infoList_nom$theta_al
+Qvec_nom_al   <- Quant_13B_infoList_nom$Qvec_al
+
+df <- data.frame(theta_al = theta_al,
+                 theta_nom_al = theta_nom_al)
+
+p21 <- ggplot(df, aes(theta_al)) +
+  geom_density() +
+  geom_vline(xintercept = Qvec_al, linetype = "dashed")+
+  labs(x = "Scope (M-bits)",
+       y = "Density/probability") +
+  ylim(0, 0.11)+
+  theme_bw()+
+  theme(text = element_text(size = 14))
+
+p <- ggplot_build(p21)
+df1 <- data.frame(x = p$data[[1]]$x, 
+                 density = p$data[[1]]$density) %>% 
+  mutate(surprisal = -log(density, 2))
+p11 <- ggplot(df1, aes(x, surprisal)) +
+  geom_line()+ 
+  geom_vline(xintercept = Qvec_al, linetype = "dashed")+
+  ylim(0, 15)+
+  labs(x = "Scope (M-bits)",
+       y = "Binary surprisal") +
+  theme_bw()+
+  theme(text = element_text(size = 14))
+
+p22 <- ggplot(df, aes(theta_nom_al)) +
+  geom_density() +
+  geom_vline(xintercept = Qvec_nom_al, linetype = "dashed")+
+  labs(x = "Scope (M-bits)",
+       y = "Density/probability") +
+  ylim(0, 0.11)+
+  theme_bw()+
+  theme(text = element_text(size = 14))
+
+p <- ggplot_build(p22)
+df1 <- data.frame(x = p$data[[1]]$x, 
+                 density = p$data[[1]]$density) %>% 
+  mutate(surprisal = -log(density, 2))
+p12 <- ggplot(df1, aes(x, surprisal)) +
+  geom_line() + 
+  geom_vline(xintercept = Qvec_nom_al, linetype = "dashed")+
+  ylim(0, 15)+
+  labs(x = "Scope (M-bits)",
+       y = "Binary surprisal") +
+  theme_bw()+
+  theme(text = element_text(size = 14))
+
+p1 <- ggarrange(p11, p21, nrow = 2)
+p1 <- annotate_figure(p1, top = text_grob("TestGardener", face = "bold", size = 14))
+p2 <- ggarrange(p12, p22, nrow = 2)
+p2 <- annotate_figure(p2, top = text_grob("Nominal", face = "bold", size = 14))
+
+ggarrange(p1, p2, ncol = 2)
+```
+
+## ICCs: TestGardener vs Nominal: Figure 8-10
+
+```{r, echo=FALSE, message=FALSE,warning=FALSE}  
+WfdList       <- Quant_13B_parList$WfdList
+arclengthvec  <- Quant_13B_infoList$arclengthvec
+Qvec_al       <- Quant_13B_infoList$Qvec_al
+binctr_al     <- Quant_13B_infoList$binctr_al
+
+WfdList_nom       <- Quant_13B_parList_nom$WfdList
+arclength_nomvec  <- Quant_13B_infoList_nom$arclengthvec
+Qvec_nom_al       <- Quant_13B_infoList_nom$Qvec_al
+```
+
+```{r, fig.width=9, fig.height=5, echo=FALSE, message=FALSE,warning=FALSE}
+seq <- c(46, 39, 55)
+for (i in seq)
+{
+  p1 <- ICC.plot(arclengthvec, WfdList, Quant_13B_dataList, Qvec_al, 
+                 binctr_al, data_point=TRUE, 
+                 plotType=c("W"), Wrng=c(0,4), plotindex=i, plotMissing = FALSE,
+                 titlestr = "TestGardener", xlab = "", lgdpos = "None")
+  
+  p2 <- ICC.plot(arclengthvec, WfdList, Quant_13B_dataList, Qvec_al, 
+                 binctr_al, data_point=TRUE, 
+                 plotType=c("P"), plotindex=i, plotMissing = FALSE, 
+                 xlab = "Test Information (M-bits)", plotTitle = FALSE)
+  
+  p3 <- ICC.plot(arclength_nomvec, WfdList_nom, Quant_13B_dataList_nom, Qvec_nom_al,
+                 binctr = NULL, data_point=FALSE, 
+                 plotType=c("W"), Wrng=c(0,4), plotindex=i, 
+                 titlestr = "Nominal", xlab = "", lgdpos = "None")
+  
+  p4 <- ICC.plot(arclength_nomvec, WfdList_nom, Quant_13B_dataList_nom, Qvec_nom_al,
+                 binctr = NULL, data_point=FALSE, 
+                 plotType=c("P"), plotindex=i,  
+                 xlab = "Test Information (M-bits)", plotTitle = FALSE)
+  
+  p <- ggpubr::ggarrange(ggpubr::ggarrange(p1, p2, nrow = 2), 
+                         ggpubr::ggarrange(p3, p4, nrow = 2), 
+                         ncol = 3)
+  print(p)
+}
+```
+
+```{r}
+
+```
+

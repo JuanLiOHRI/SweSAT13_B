@@ -1,0 +1,201 @@
+---
+title: "Quant13B - APM 2024 paper, mirt"
+date: "2024-08-15"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Quantshort}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+  )
+```
+  
+```{r setup}
+library(haven)
+library(mirt)
+library(tidyverse)
+library(patchwork)
+
+library(TestGardener)
+source("R/nominal_surpmat.R")
+```
+
+## Read and prepare data
+
+```{r}
+n    <- 80
+data <- read.csv("data/Quant_13B_sample.csv", header = T) 
+N    <- nrow(data) # Number of examinees
+U <- as.matrix(unname(data))
+
+# read the key
+knostring <- scan("data/Quant_13B_key.txt", "o") 
+key       <- as.integer(unlist(stringr::str_split(knostring,"")))
+
+# Number of options per item
+noption <- rep(4,n)
+noption[c(23:28,63:68)] <- 5
+```
+
+```{r}
+# Set missing/spoiled responses as NA
+# apply(U, 2, table)
+
+for (i in 1:n) {
+  U[which(U[,i] > noption[i]), i] <- NA
+}
+
+#apply(U, 2, table)
+
+colnames(U) <- paste0("Item", 1:n) # `mirt` requires that items must have unique names in data input
+```
+
+## Fit the mirt nominal model
+
+```{r}
+file_name <- "data/saved results/mirt_mod_13.rds"
+if (file.exists(file_name)) {
+  mirt_mod_13 <- readRDS(file_name)
+} else {
+  start <- Sys.time()
+  mirt_mod_13 <- mirt(U, model = 1, itemtype = "nominal", SE = FALSE)
+  print(paste0("Run time: ", Sys.time() - start))
+  
+  saveRDS(mirt_mod_13, file=file_name)
+}
+```
+
+## Extract parameters: 
+
+This extracts slopes and intercepts for all 80 items. For the four-option items the first 4 in each line are the first 4 slopes, the next 4 the corresponding intercepts and the last two are NA since they aren't used in the nominal model.  For the five-item items the 9th value is the slope and the 10th the intercept for option 5.
+
+```{r}
+item_params <- coef(mirt_mod_13, IRTpars = T, simplify = T)$items
+```
+
+## Set up for TG style plotting
+
+```{r}
+n <- 80
+noption <- rep(4,n)
+noption[c(23:28,63:68)] <- 5
+```
+
+```{r}
+ScoreList <- vector("list",n) # option scores
+for (item in 1:n){
+  scorei <- rep(0,noption[item])
+  scorei[key[item]] <- 1
+  ScoreList[[item]] <- scorei
+}
+itemLab <- NULL  #  no item labels
+optLab  <- NULL  #  no option labels
+optList <- list(itemLab, optLab, optScr=ScoreList)
+```
+
+## Nominal
+
+```{r}
+titlestr  <- "SweSAT-Q_13B_nominal"
+Quant_13B_dataList_nom <- list(optList=optList, key=key, titlestr)
+saveRDS(Quant_13B_dataList_nom, file="data/saved results/Quant_13B_dataList_nom.rds")
+```
+
+### Set up object WfdList_nom: here the objects for each item to be stored in a named list object WfdListi
+
+```{r}
+WfdList_nom <- vector("list", n)
+# Specify here the range of theta to consider (from -inf to inf is not possible since probs go to 0)
+bdry <- c(-2.5,4)
+indfine <- seq(bdry[1],bdry[2],len=101)
+for (item in 1:n) {
+  if (noption[item] == 4) {
+    parmat <- matrix(item_params[item,1:8],4,2)
+  } else {
+    parmat <- matrix(c(item_params[item,1:4],
+                       item_params[item,9],
+                       item_params[item,5:8],
+                       item_params[item,10]),5,2)
+  }
+  result <- nominal_surpmat(parmat, bdry, nderiv=2) 
+  WListi <- list(
+    #  Wfd is a matrix of slopes and intercepts
+    Wfd = parmat,
+    M = noption[item],
+    Pbin = NULL,
+    Wbin = NULL,
+    Pmatfine = result$prbmat,
+    Wmatfine = result$surpmat,
+    DWmatfine = result$Dthetasurpmat,
+    D2Wmatfine = result$D2thetasurpmat,
+    PStdErr = NULL,
+    WStdErr = NULL
+  )  
+  WfdList_nom[[item]] <- WListi
+}
+
+surpmat <- result$surpmat
+```
+
+### compute score index values (thetas) using EAP method
+
+```{r}
+theta_nom <- fscores(mirt_mod_13, "EAP")
+```
+
+###  Quant_13B_parList_nom
+
+```{r}
+logdensbasis <- fda::create.bspline.basis(bdry, 15)
+theta.distnList <- theta.distn(theta_nom, logdensbasis)
+pdf_fd    <- theta.distnList$pdf_fd
+logdensfd <- theta.distnList$logdensfd
+cdffine   <- theta.distnList$cdffine
+C         <- theta.distnList$C
+denscdf   <- theta.distnList$denscdf
+indcdf    <- theta.distnList$indcdf
+Pvec      <- c(5,25,50,75,95)/100
+Qvec_nom  <- pracma::interp1(as.numeric(denscdf), 
+                             as.numeric(indcdf), Pvec)
+
+Quant_13B_parList_nom <- list(
+  theta_nom   = theta_nom,
+  WfdList_nom = WfdList_nom,
+  logdensfd   = logdensfd,
+  denscdf     = denscdf,
+  indcdf      = indcdf,
+  Qvec_nom    = Qvec_nom
+)
+
+saveRDS(Quant_13B_parList_nom, file="data/saved results/Quant_13B_parList_nom.rds")
+```
+
+###  Quant_13B_infoList_nom
+
+```{r}
+file_name <- "data/saved results/Quant_13B_infoList_nom.rds"
+if (file.exists(file_name)) {
+  Quant_13B_infoList_nom <- readRDS(file_name)
+} else {
+  Quant_13B_infoList_nom <- theta2arclen(theta_nom, Qvec_nom, WfdList_nom, NULL,
+                                             plotrng=bdry) 
+  
+  saveRDS(Quant_13B_infoList_nom, file=file_name)
+}
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+
