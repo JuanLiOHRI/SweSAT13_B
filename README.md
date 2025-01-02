@@ -2,7 +2,7 @@
 
 Code for analysis in the manuscript entitled "An Information Manifold Perspective for Analyzing Test Data" for publication in *Applied Psychological Measurement*.
 
-doi: [link to be inserted]
+doi: https://journals.sagepub.com/doi/10.1177/01466216241310600
 
 ## Data files
 
